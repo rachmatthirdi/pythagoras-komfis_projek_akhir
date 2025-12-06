@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Visualisasi Air Teorema Pythagoras</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #1a1a1a;
+        font-family: sans-serif;
+      }
+      #info {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        color: white;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border-radius: 8px;
+        pointer-events: none;
+      }
+      #controls {
+        position: absolute;
+        bottom: 30px;
+        width: 100%;
+        text-align: center;
+      }
+      input[type="range"] {
+        width: 300px;
+      }
+      h1 {
+        margin: 0 0 10px 0;
+        font-size: 1.2rem;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="info">
+      <h1>Teorema Pythagoras (a² + b² = c²)</h1>
+      <p>Putar alat untuk melihat perpindahan air.</p>
+      <p style="color: #4facfe">■ Volume Air Konstan</p>
+    </div>
+
+    <div id="controls">
+      <label style="color: white">Putar: </label>
+      <input type="range" id="rotator" min="0" max="360" value="0" step="0.5" />
+    </div>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      // --- 1. SETUP SCENE ---
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x222222);
+
+      const camera = new THREE.PerspectiveCamera(
+        45,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      camera.position.set(0, 0, 40);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enablePan = false;
+
+      // Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambientLight);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+      dirLight.position.set(10, 20, 10);
+      scene.add(dirLight);
+
+      // --- 2. SETUP GEOMETRY (Sisi 6, 8, 10 untuk skala visual) ---
+      // Kita pakai kelipatan 3,4,5 agar terlihat jelas: a=6, b=8, c=10
+      const sizeA = 6;
+      const sizeB = 8;
+      const sizeC = 10;
+      const thickness = 2; // Tebal wadah (depth)
+
+      // Group Utama (Alat yang berputar)
+      const rig = new THREE.Group();
+      scene.add(rig);
+
+      // Material
+      const glassMat = new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        metalness: 0,
+        roughness: 0,
+        transmission: 1, // Kaca
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.DoubleSide,
+      });
+
+      const wireMat = new THREE.LineBasicMaterial({ color: 0xffffff });
+
+      // Material Air (Biru Terang)
+      const waterMat = new THREE.MeshPhongMaterial({
+        color: 0x00aaff,
+        transparent: true,
+        opacity: 0.8,
+        shininess: 100,
+      });
+
+      // --- Fungsi Pembantu Membuat Wadah & Air ---
+      function createContainer(size, name) {
+        const group = new THREE.Group();
+
+        // 1. Kotak Kaca (Wadah)
+        const geo = new THREE.BoxGeometry(size, size, thickness);
+        const mesh = new THREE.Mesh(geo, glassMat);
+
+        // Wireframe (Tepian)
+        const edges = new THREE.EdgesGeometry(geo);
+        const line = new THREE.LineSegments(edges, wireMat);
+
+        // 2. Air (Isi)
+        // Kita buat air sedikit lebih kecil dari wadah agar tidak flickering (z-fighting)
+        const waterGeo = new THREE.BoxGeometry(
+          size - 0.1,
+          size - 0.1,
+          thickness - 0.1
+        );
+        // Geser origin geometry ke bawah agar scaling dimulai dari dasar
+        waterGeo.translate(0, -size / 2 + 0.05, 0);
+
+        const water = new THREE.Mesh(waterGeo, waterMat);
+        water.userData = { originalSize: size }; // Simpan ukuran asli
+
+        // Struktur hierarki
+        // Container Group -> Mesh Kaca
+        //                 -> Air Mesh
+        group.add(mesh);
+        group.add(line);
+        group.add(water);
+
+        return { group, waterMesh: water };
+      }
+
+      // --- 3. RAKIT ALAT ---
+
+      // Buat 3 Wadah
+      const boxA = createContainer(sizeA, "A");
+      const boxB = createContainer(sizeB, "B");
+      const boxC = createContainer(sizeC, "C");
+
+      // POSISIKAN WADAH SESUAI SEGITIGA SIKU-SIKU
+      // Kita letakkan titik sudut siku-siku di (0,0)
+
+      // Posisi Box A (Sisi tegak, kiri) - Menempel di sumbu Y negatif
+      // Sisi a = 6. Pusat box ada di (-3, 0) ? Bukan, mari susun mengelilingi pusat rotasi.
+
+      // Pusat Rotasi adalah tengah Hipotenusa (C) agar putarannya seimbang secara visual
+      // Tapi rumus pythagoras kotak biasanya siku-sikunya di tengah.
+      // Mari kita taruh pusat rotasi di tengah Segitiga.
+
+      // Koordinat lokal relatif terhadap siku-siku (0,0):
+      // A (kiri/tinggi 6): Pusat di (-3, 0)? Tidak, A menempel di sisi kiri sumbu Y.
+      // B (bawah/lebar 8): Menempel di sisi bawah sumbu X.
+      // C (miring): Menghubungkan ujung A dan B.
+
+      // Agar mudah, kita geser posisi lokal:
+      boxA.group.position.set(-sizeA / 2, sizeA / 2, 0); // Kiri Atas dari pusat (0,0) bayangan
+      boxB.group.position.set(sizeB / 2, -sizeB / 2, 0); // Kanan Bawah
+      // Ini salah. Mari kita susun manual agar membentuk segitiga di tengah.
+
+      // Revisi Posisi:
+      // Titik sudut siku-siku ada di (0,0).
+      // Sisi A (6) ada di sumbu Y positif. Kotak A menempel di kirinya.
+      boxA.group.position.set(-sizeA / 2, sizeA / 2, 0);
+
+      // Sisi B (8) ada di sumbu X positif. Kotak B menempel di bawahnya.
+      boxB.group.position.set(sizeB / 2, -sizeB / 2, 0);
+
+      // Sisi C (10) adalah hipotenusa.
+      // Titik ujung A ada di (0, 6). Titik ujung B ada di (8, 0).
+      // Tengah hipotenusa ada di (4, 3).
+      // Sudut kemiringan hipotenusa: atan(6/8) = 36.87 derajat.
+      // Kotak C menempel di atas hipotenusa.
+      boxC.group.position.set(4 + 3, 3 + 4, 0); // Rumit menghitung manual.
+
+      // -- PENDEKATAN LEBIH BERSIH: Grouping --
+      // Kita buat container A menempel di sisi kiri (X= -3, Y=0), B di bawah (X=0, Y=-4).
+      // Lalu C menempel di sisi miring.
+
+      // Reset posisi:
+      boxA.group.position.set(-sizeA / 2, 0, 0); // Pusat kotak A
+      boxB.group.position.set(sizeB / 2, -sizeA / 2 - sizeB / 2, 0); // Pusat kotak B, di bawah A?
+
+      // Oke, mari gunakan referensi visual klasik "Perigal's Dissection" setup:
+      // Persegi C di tengah bawah (awal). Persegi A dan B di atas miring.
+
+      // SETUP AWAL (C di BAWAH, Datar):
+      boxC.group.position.set(0, 0, 0); // C pusat dunia
+
+      // Sudut segitiga 3-4-5.
+      // Sudut alpha (di antara b dan c) = acos(4/5) = 36.87 deg
+      const angle = Math.acos(sizeB / sizeC);
+
+      // Tempelkan A dan B di atas C
+      // Box B (sisi 8) menempel di sisi kanan atas C
+      // Box A (sisi 6) menempel di sisi kiri atas C
+
+      // Matematika posisi relatif terhadap C (0,0):
+      // Kita geser setengah C ke atas: Y = 5.
+      // Lalu rotasi sesuai sudut segitiga.
+
+      // Agar simple, kita visualkan Segitiga di tengah, kotak-kotak menempel di sisinya.
+      // Segitiga vertices: P1(0,0), P2(0, 6), P3(8, 0).
+      // Center segitiga kira-kira di (2.6, 2). Kita jadikan ini pivot rig.
+
+      // Re-Revisi: Kita posisikan manual agar pas.
+      // Siku-siku di (0,0).
+      // Sisi A (tinggi 6) di sumbu Y. Kotak A di kiri sumbu Y: pusat (-3, 3).
+      boxA.group.position.set(-sizeA / 2, sizeA / 2, 0);
+
+      // Sisi B (alas 8) di sumbu X. Kotak B di bawah sumbu X: pusat (4, -4).
+      boxB.group.position.set(sizeB / 2, -sizeB / 2, 0);
+
+      // Sisi C (miring). Titik (0,6) ke (8,0).
+      // Pusat C ada di tengah garis itu + offset tegak lurus garis.
+      // Vector garis = (8, -6). Normal vector = (6, 8). Unit normal = (0.6, 0.8).
+      // Midpoint garis = (4, 3).
+      // Pusat Kotak C = Midpoint + (sizeC/2 * UnitNormal)
+      // Pusat C = (4, 3) + (5 * 0.6, 5 * 0.8) = (4+3, 3+4) = (7, 7).
+      boxC.group.position.set(7, 7, 0);
+      boxC.group.rotation.z = Math.atan2(-6, 8) + Math.PI / 2; // Rotasi agar sejajar miring
+
+      rig.add(boxA.group);
+      rig.add(boxB.group);
+      rig.add(boxC.group);
+
+      // Segitiga Siku-Siku (Visual) di tengah
+      const shape = new THREE.Shape();
+      shape.moveTo(0, 0);
+      shape.lineTo(0, sizeA);
+      shape.lineTo(sizeB, 0);
+      shape.lineTo(0, 0);
+      const triangleGeo = new THREE.ShapeGeometry(shape);
+      const triangleMat = new THREE.MeshBasicMaterial({
+        color: 0x555555,
+        side: THREE.DoubleSide,
+      });
+      const triangle = new THREE.Mesh(triangleGeo, triangleMat);
+      triangle.position.z = -thickness / 2; // Di belakang
+      rig.add(triangle);
+
+      // Pindahkan RIG agar pusat rotasi ada di tengah-tengah visual (kira-kira di tengah hipotenusa)
+      // Midpoint hipotenusa (4,3).
+      rig.children.forEach((c) => {
+        c.position.x -= 4;
+        c.position.y -= 3;
+      });
+
+      // --- 4. LOGIKA AIR (ANIMASI) ---
+
+      // Total Volume = Luas C = 100
+      // Luas A = 36, Luas B = 64. 36+64 = 100.
+
+      const slider = document.getElementById("rotator");
+
+      function updateWater() {
+        // Ambil rotasi dari slider (konversi ke radian)
+        const rotDegrees = parseFloat(slider.value);
+        // Offset 127 derajat agar saat slider 0, C ada di posisi paling bawah (rata air)
+        // Sudut kemiringan C adalah atan(6/8) ~ 36.8 derajat.
+        // Saat slider 0, kita ingin C datar di bawah.
+        const offset = Math.PI - Math.atan(6 / 8);
+
+        const currentRot = THREE.MathUtils.degToRad(rotDegrees);
+        rig.rotation.z = currentRot + offset;
+
+        // HITUNG LOGIKA VOLUME
+        // Kita gunakan fungsi Cosinus dari rotasi untuk menentukan "Flow"
+        // Saat rotasi 0 (C di bawah): C penuh (100%), A&B kosong.
+        // Saat rotasi 180 (C di atas): C kosong, A&B penuh.
+
+        // Normalisasi slider 0-360 ke progress osilasi
+        // Cosine wave: 1 saat di bawah, 0 saat di atas.
+        // Kita pakai vector Up dunia (0,1,0) vs Vector Up Lokal C.
+
+        // Vector Up lokal C (relatif terhadap rig)
+        const cUp = new THREE.Vector3(0, 1, 0);
+        cUp.applyAxisAngle(
+          new THREE.Vector3(0, 0, 1),
+          boxC.group.rotation.z + rig.rotation.z
+        );
+
+        // Dot product dengan World Down (0, -1, 0)
+        // Jika C menghadap bawah, dot = 1 (Penuh).
+        // Jika C menghadap atas, dot = -1 (Kosong).
+        // Kita map -1..1 menjadi 0..1
+
+        let fillFactor = (cUp.y * -1 + 1) / 2;
+
+        // Clamp sedikit agar tidak overflow visual
+        fillFactor = Math.max(0, Math.min(1, fillFactor));
+
+        // Volume C = Total * fillFactor
+        // Volume A+B = Total * (1 - fillFactor)
+        // Karena tinggi air linear terhadap volume di kotak, Scale Y = fillFactor.
+
+        // Update Skala Air (Volume)
+        // Trik: Scale Y air, tapi karena pivot air sudah kita geser ke bawah saat createContainer,
+        // dia akan tumbuh dari bawah ke atas.
+
+        // Air C
+        boxC.waterMesh.scale.y = fillFactor;
+        boxC.waterMesh.visible = fillFactor > 0.01;
+
+        // Air A dan B (Kebalikannya)
+        const inverseFactor = 1 - fillFactor;
+        boxA.waterMesh.scale.y = inverseFactor;
+        boxB.waterMesh.scale.y = inverseFactor;
+
+        boxA.waterMesh.visible = inverseFactor > 0.01;
+        boxB.waterMesh.visible = inverseFactor > 0.01;
+
+        // --- VISUAL TRICK: DATARKAN PERMUKAAN AIR ---
+        // Agar air terlihat seperti cairan, kita harus memutar mesh air
+        // berlawanan arah dengan rotasi wadahnya.
+
+        const globalRot = rig.rotation.z;
+
+        // Counter rotate A
+        boxA.waterMesh.rotation.z = -globalRot;
+        // Counter rotate B
+        boxB.waterMesh.rotation.z = -globalRot;
+        // Counter rotate C (perlu dikurangi rotasi lokal C juga)
+        boxC.waterMesh.rotation.z = -globalRot - boxC.group.rotation.z;
+
+        // KOREKSI SCALING & POSISI (Advanced Visuals)
+        // Karena kita memutar objek yang di-scale, bentuknya akan jadi *skewed* (jajar genjang).
+        // Untuk simulasi sederhana, kita biarkan scale Y saja,
+        // tapi agar terlihat kotak tetap, kita perlu teknik clipping atau masking.
+        // Namun, karena ini tutorial pemula, trik "Skewing" justru terlihat seperti air berguncang
+        // yang cukup estetik meskipun tidak 100% fisik akurat.
+
+        // *Catatan:* Implementasi air yang 100% datar sempurna memerlukan `gl.clippingPlanes`
+        // yang jauh lebih kompleks. Kode ini menggunakan rotasi mesh + scale
+        // yang memberikan efek ilusi optik cukup baik untuk edukasi.
+      }
+
+      // Loop Animasi
+      function animate() {
+        requestAnimationFrame(animate);
+        updateWater();
+        renderer.render(scene, camera);
+      }
+
+      // Handle Resize
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      animate();
+    </script>
+  </body>
+</html>
